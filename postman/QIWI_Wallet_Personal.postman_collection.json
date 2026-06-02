@@ -1,0 +1,368 @@
+{
+  "info": {
+    "name": "QIWI Wallet Personal API",
+    "_postman_id": "b1f6c3e0-2a4d-4f1c-9e1a-qiwiwalletpers",
+    "description": "Коллекция для API QIWI Кошелька (Personal), повторяющая контрактные автотесты тестового задания.\n\nИсточник: https://developer.qiwi.com/ru/qiwi-wallet-personal/#intro\n\n## Сценарии\n1. **Доступность сервиса** — `GET /payment-history/v2/persons/{wallet}/payments`: HTTP 200, JSON, ответ соответствует контракту, `data` — массив, соблюдается лимит `rows`.\n2. **Баланс** — `GET /funding-sources/v2/persons/{wallet}/accounts`: контракт ответа, рублёвый счёт `qw_wallet_rub`, баланс строго > 0, валюта 643.\n3. **Создание платежа на 1 ₽** — `POST /sinap/api/v2/terms/99/payments`: HTTP 200, контракт `PaymentInfo`, сумма 1 ₽, валюта рубли, получатель совпадает, есть `transaction.id`.\n4. **Исполнение платежа** — `GET /payment-history/v2/transactions/{id}`: платёж принят к исполнению (`Accepted`), транзакция исполнена (`SUCCESS`), сумма осталась 1 ₽.\n\n> Сервис нерабочий: при работающем API запросы проходят, при нерабочем — осознанно падают на сетевой ошибке/несоответствии контракту.\n\n## Переменные\nЗаполните секреты в окружении `QIWI Wallet Personal (env)` (см. файл рядом с коллекцией). Токен в репозиторий не коммитится.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{qiwi_api_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "1. Доступность сервиса",
+      "description": "Проверка доступности: метод «Получить все платежи». Проверяем не только код ответа, но и формат тела через JSON-Schema.",
+      "item": [
+        {
+          "name": "GET payment history (availability)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const PAYMENT_HISTORY_SCHEMA = {",
+                  "  type: 'object',",
+                  "  required: ['data'],",
+                  "  properties: {",
+                  "    data: {",
+                  "      type: 'array',",
+                  "      items: {",
+                  "        type: 'object',",
+                  "        required: ['txnId', 'personId', 'date', 'status', 'type', 'sum'],",
+                  "        properties: {",
+                  "          txnId: { type: 'number' },",
+                  "          personId: { type: 'number' },",
+                  "          date: { type: 'string' },",
+                  "          errorCode: { type: ['number', 'null'] },",
+                  "          error: { type: ['string', 'null'] },",
+                  "          status: { type: 'string', enum: ['WAITING', 'SUCCESS', 'ERROR'] },",
+                  "          type: { type: 'string', enum: ['IN', 'OUT', 'QIWI_CARD', 'ALL'] },",
+                  "          statusText: { type: 'string' },",
+                  "          sum: { type: 'object', required: ['amount', 'currency'], properties: { amount: { type: 'number' }, currency: { type: ['number', 'string'] } } },",
+                  "          commission: { type: 'object', required: ['amount', 'currency'], properties: { amount: { type: 'number' }, currency: { type: ['number', 'string'] } } },",
+                  "          total: { type: 'object', required: ['amount', 'currency'], properties: { amount: { type: 'number' }, currency: { type: ['number', 'string'] } } }",
+                  "        }",
+                  "      }",
+                  "    },",
+                  "    nextTxnId: { type: ['number', 'null'] },",
+                  "    nextTxnDate: { type: ['string', 'null'] }",
+                  "  }",
+                  "};",
+                  "",
+                  "pm.test('Сервис ответил HTTP 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Content-Type — application/json', function () {",
+                  "  pm.expect(pm.response.headers.get('Content-Type') || '').to.include('application/json');",
+                  "});",
+                  "",
+                  "pm.test('Ответ соответствует документированному контракту', function () {",
+                  "  pm.response.to.have.jsonSchema(PAYMENT_HISTORY_SCHEMA);",
+                  "});",
+                  "",
+                  "pm.test(\"Поле 'data' — массив\", function () {",
+                  "  pm.expect(pm.response.json().data).to.be.an('array');",
+                  "});",
+                  "",
+                  "pm.test('Соблюдается лимит rows', function () {",
+                  "  const rows = Number(pm.request.url.query.get('rows')) || 10;",
+                  "  pm.expect(pm.response.json().data.length).to.be.at.most(rows);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/payment-history/v2/persons/{{wallet}}/payments?rows=10",
+              "host": ["{{base_url}}"],
+              "path": ["payment-history", "v2", "persons", "{{wallet}}", "payments"],
+              "query": [
+                { "key": "rows", "value": "10" }
+              ]
+            },
+            "description": "Получить все платежи (история). Используется как проверка доступности сервиса."
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Баланс",
+      "description": "Запрос баланса кошелька. Ключевое условие задания — баланс строго положительный (> 0).",
+      "item": [
+        {
+          "name": "GET funding sources (accounts)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const BALANCE_SCHEMA = {",
+                  "  type: 'object',",
+                  "  required: ['accounts'],",
+                  "  properties: {",
+                  "    accounts: {",
+                  "      type: 'array',",
+                  "      items: {",
+                  "        type: 'object',",
+                  "        required: ['alias', 'hasBalance', 'currency'],",
+                  "        properties: {",
+                  "          alias: { type: 'string' },",
+                  "          fsAlias: { type: 'string' },",
+                  "          bankAlias: { type: 'string' },",
+                  "          title: { type: 'string' },",
+                  "          type: { type: 'object', properties: { id: { type: 'string' }, title: { type: 'string' } } },",
+                  "          hasBalance: { type: 'boolean' },",
+                  "          balance: { oneOf: [ { type: 'null' }, { type: 'object', required: ['amount', 'currency'], properties: { amount: { type: 'number' }, currency: { type: ['number', 'string'] } } } ] },",
+                  "          currency: { type: 'number' }",
+                  "        }",
+                  "      }",
+                  "    }",
+                  "  }",
+                  "};",
+                  "",
+                  "const RUB_CURRENCY_CODE = Number(pm.collectionVariables.get('rub_currency_code')) || 643;",
+                  "const RUB_WALLET_ALIAS = 'qw_wallet_rub';",
+                  "",
+                  "pm.test('Запрос баланса вернул HTTP 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Ответ соответствует контракту', function () {",
+                  "  pm.response.to.have.jsonSchema(BALANCE_SCHEMA);",
+                  "});",
+                  "",
+                  "function rubAccount() {",
+                  "  const accounts = (pm.response.json().accounts) || [];",
+                  "  const rub = accounts.filter(a => a.alias === RUB_WALLET_ALIAS);",
+                  "  pm.expect(rub.length, `В ответе нет рублёвого счёта '${RUB_WALLET_ALIAS}'`).to.be.above(0);",
+                  "  return rub[0];",
+                  "}",
+                  "",
+                  "pm.test('У рублёвого счёта есть баланс', function () {",
+                  "  const account = rubAccount();",
+                  "  pm.expect(account.hasBalance).to.eql(true);",
+                  "  pm.expect(account.balance, \"Объект 'balance' рублёвого счёта пуст\").to.not.be.empty;",
+                  "});",
+                  "",
+                  "pm.test('Баланс строго положительный (> 0)', function () {",
+                  "  const account = rubAccount();",
+                  "  const amount = account.balance.amount;",
+                  "  pm.expect(amount).to.be.a('number');",
+                  "  pm.expect(amount, 'Баланс должен быть положительным (> 0)').to.be.above(0);",
+                  "});",
+                  "",
+                  "pm.test('Валюта баланса — рубли (643)', function () {",
+                  "  const account = rubAccount();",
+                  "  pm.expect(account.balance.currency).to.eql(RUB_CURRENCY_CODE);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/funding-sources/v2/persons/{{wallet}}/accounts",
+              "host": ["{{base_url}}"],
+              "path": ["funding-sources", "v2", "persons", "{{wallet}}", "accounts"]
+            },
+            "description": "Получить балансы счетов кошелька."
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Создание платежа",
+      "description": "Создание P2P-платежа на 1 ₽ (провайдер 99 — перевод на QIWI Кошелёк). Pre-request генерирует уникальный id платежа, тест сохраняет transaction.id для сценария исполнения.",
+      "item": [
+        {
+          "name": "POST create payment (1 RUB, P2P)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('payment_id', String(Date.now()));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const PAYMENT_INFO_SCHEMA = {",
+                  "  type: 'object',",
+                  "  required: ['id', 'sum', 'fields', 'transaction'],",
+                  "  properties: {",
+                  "    id: { type: 'string' },",
+                  "    terms: { type: 'string' },",
+                  "    comment: { type: ['string', 'null'] },",
+                  "    source: { type: 'string' },",
+                  "    sum: { type: 'object', required: ['amount', 'currency'], properties: { amount: { type: 'number' }, currency: { type: ['number', 'string'] } } },",
+                  "    fields: { type: 'object', required: ['account'], properties: { account: { type: 'string' } } },",
+                  "    transaction: { type: 'object', required: ['id', 'state'], properties: { id: { type: 'string' }, state: { type: 'object', required: ['code'], properties: { code: { type: 'string' } } } } }",
+                  "  }",
+                  "};",
+                  "",
+                  "const RUB_CURRENCY_CODE = Number(pm.collectionVariables.get('rub_currency_code')) || 643;",
+                  "const PAYMENT_AMOUNT = 1;",
+                  "",
+                  "pm.test('Создание платежа вернуло HTTP 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Ответ соответствует контракту PaymentInfo', function () {",
+                  "  pm.response.to.have.jsonSchema(PAYMENT_INFO_SCHEMA);",
+                  "});",
+                  "",
+                  "pm.test('Сумма платежа = 1 ₽, валюта — рубли', function () {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(Number(body.sum.amount)).to.eql(PAYMENT_AMOUNT);",
+                  "  pm.expect(String(body.sum.currency)).to.eql(String(RUB_CURRENCY_CODE));",
+                  "});",
+                  "",
+                  "pm.test('Получатель в ответе совпадает с запросом', function () {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.fields.account).to.eql(pm.collectionVariables.get('recipient_wallet'));",
+                  "});",
+                  "",
+                  "pm.test('В ответе есть идентификатор транзакции', function () {",
+                  "  const body = pm.response.json();",
+                  "  const txnId = body.transaction && body.transaction.id;",
+                  "  pm.expect(txnId, 'Отсутствует transaction.id').to.be.ok;",
+                  "  pm.collectionVariables.set('transaction_id', String(txnId));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"{{payment_id}}\",\n  \"sum\": {\n    \"amount\": 1,\n    \"currency\": \"643\"\n  },\n  \"paymentMethod\": {\n    \"type\": \"Account\",\n    \"accountId\": \"643\"\n  },\n  \"comment\": \"Autotest 1 RUB payment\",\n  \"fields\": {\n    \"account\": \"{{recipient_wallet}}\"\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/sinap/api/v2/terms/{{provider_id}}/payments",
+              "host": ["{{base_url}}"],
+              "path": ["sinap", "api", "v2", "terms", "{{provider_id}}", "payments"]
+            },
+            "description": "Создать перевод на QIWI Кошелёк (P2P) на 1 рубль."
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Исполнение платежа",
+      "description": "Проверка исполнения созданного платежа: принят к исполнению (Accepted) и подтверждён по статусу транзакции (SUCCESS). Запускать после запроса из папки 3.",
+      "item": [
+        {
+          "name": "GET transaction status",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.collectionVariables.get('transaction_id')) {",
+                  "  console.warn('transaction_id не задан — сначала выполните запрос «Создание платежа».');",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const TRANSACTION_SCHEMA = {",
+                  "  type: 'object',",
+                  "  required: ['txnId', 'status', 'type', 'sum'],",
+                  "  properties: {",
+                  "    txnId: { type: 'number' },",
+                  "    status: { type: 'string', enum: ['WAITING', 'SUCCESS', 'ERROR'] },",
+                  "    type: { type: 'string', enum: ['IN', 'OUT', 'QIWI_CARD'] },",
+                  "    sum: { type: 'object', required: ['amount', 'currency'], properties: { amount: { type: 'number' }, currency: { type: ['number', 'string'] } } },",
+                  "    total: { type: 'object', required: ['amount', 'currency'], properties: { amount: { type: 'number' }, currency: { type: ['number', 'string'] } } },",
+                  "    commission: { type: 'object', required: ['amount', 'currency'], properties: { amount: { type: 'number' }, currency: { type: ['number', 'string'] } } }",
+                  "  }",
+                  "};",
+                  "",
+                  "pm.test('Статус транзакции получен (HTTP 200)', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Ответ соответствует контракту транзакции', function () {",
+                  "  pm.response.to.have.jsonSchema(TRANSACTION_SCHEMA);",
+                  "});",
+                  "",
+                  "pm.test('Транзакция не завершилась ошибкой', function () {",
+                  "  pm.expect(pm.response.json().status).to.not.eql('ERROR');",
+                  "});",
+                  "",
+                  "pm.test('Транзакция исполнена (SUCCESS)', function () {",
+                  "  pm.expect(pm.response.json().status).to.eql('SUCCESS');",
+                  "});",
+                  "",
+                  "pm.test('Исполненная сумма = 1 ₽', function () {",
+                  "  pm.expect(Number(pm.response.json().sum.amount)).to.eql(1);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/payment-history/v2/transactions/{{transaction_id}}?type=OUT",
+              "host": ["{{base_url}}"],
+              "path": ["payment-history", "v2", "transactions", "{{transaction_id}}"],
+              "query": [
+                { "key": "type", "value": "OUT" }
+              ]
+            },
+            "description": "Получить статус одной транзакции по её идентификатору."
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    { "key": "base_url", "value": "https://edge.qiwi.com", "type": "string" },
+    { "key": "wallet", "value": "79991234567", "type": "string" },
+    { "key": "recipient_wallet", "value": "79997654321", "type": "string" },
+    { "key": "provider_id", "value": "99", "type": "string" },
+    { "key": "rub_currency_code", "value": "643", "type": "string" },
+    { "key": "qiwi_api_token", "value": "", "type": "string" },
+    { "key": "payment_id", "value": "", "type": "string" },
+    { "key": "transaction_id", "value": "", "type": "string" }
+  ]
+}

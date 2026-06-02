@@ -225,3 +225,6 @@ playwright-report/
 .DS_Store
 .idea/
 .vscode/
+
+# AI change trace (local only, not tracked)
+.ai-trace/

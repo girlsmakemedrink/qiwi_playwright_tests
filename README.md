@@ -44,6 +44,45 @@ qiwi-playwright-tests/
 Тесты используют Playwright **`APIRequestContext`** — встроенный HTTP-клиент
 Playwright для API-тестирования (без запуска браузера).
 
+## Postman-коллекция
+
+Те же 4 сценария продублированы как коллекция Postman (`postman/`):
+
+```
+postman/
+├── QIWI_Wallet_Personal.postman_collection.json   # запросы + тесты (pm.test)
+└── QIWI_Wallet_Personal.postman_environment.json  # переменные окружения
+```
+
+Коллекция повторяет логику автотестов: в каждом запросе во вкладке **Tests**
+заданы проверки (`pm.test`), включая валидацию ответа по JSON-Schema
+(`pm.response.to.have.jsonSchema`), которые соответствуют контрактам из `schemas.py`.
+
+| Папка | Запрос | Проверки |
+|-------|--------|----------|
+| 1. Доступность сервиса | `GET /payment-history/v2/persons/{wallet}/payments?rows=10` | HTTP 200, `application/json`, контракт, `data` — массив, лимит `rows` |
+| 2. Баланс | `GET /funding-sources/v2/persons/{wallet}/accounts` | контракт, счёт `qw_wallet_rub`, баланс > 0, валюта 643 |
+| 3. Создание платежа | `POST /sinap/api/v2/terms/{provider}/payments` | HTTP 200, контракт `PaymentInfo`, сумма 1 ₽, валюта рубли, получатель совпадает, есть `transaction.id` |
+| 4. Исполнение платежа | `GET /payment-history/v2/transactions/{id}?type=OUT` | контракт, статус `SUCCESS`, сумма 1 ₽ |
+
+### Как использовать
+1. В Postman: **Import** → выберите оба файла из `postman/`.
+2. Выберите окружение **«QIWI Wallet Personal (env)»** и заполните `qiwi_api_token`
+   (тип `secret`, в репозиторий не коммитится), при необходимости — `wallet`,
+   `recipient_wallet`, `base_url`.
+3. Авторизация задана на уровне коллекции: `Bearer {{qiwi_api_token}}`.
+4. Запросы 3 → 4 связаны: создание платежа сохраняет `transaction_id`
+   в переменную коллекции, который затем использует запрос исполнения.
+   Удобно прогнать всю коллекцию через **Collection Runner** в порядке папок 1→4.
+
+Запуск из CLI (опционально, через [newman](https://github.com/postmanlabs/newman)):
+
+```bash
+newman run postman/QIWI_Wallet_Personal.postman_collection.json \
+  -e postman/QIWI_Wallet_Personal.postman_environment.json \
+  --env-var "qiwi_api_token=ВАШ_ТОКЕН"
+```
+
 ## Установка
 
 ```bash
