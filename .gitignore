@@ -216,3 +216,12 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Playwright
+test-results/
+playwright-report/
+
+# OS / IDE
+.DS_Store
+.idea/
+.vscode/
